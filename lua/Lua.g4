@@ -93,8 +93,19 @@ explist
     ;
 
 exp
-    : 'nil' | 'false' | 'true' | number | string | '...' | functiondef
-    | prefixexp | tableconstructor | exp binop exp | unop exp
+    : 'nil' | 'false' | 'true' | number | string		
+	| '...'											
+	| functiondef								
+    | prefixexp										
+	| tableconstructor								
+	| <assoc=right> exp operatorPower exp			
+	| operatorUnary exp								
+	| exp operatorMulDivMod exp		
+	| exp operatorAddSub exp						
+	| <assoc=right> exp operatorStrcat exp			
+	| exp operatorComparison exp					
+	| exp operatorAnd exp							
+	| exp operatorOr exp	
 	;
 
 var
@@ -167,15 +178,29 @@ fieldsep
     : ',' | ';'
     ;
 
-binop
-    : '+' | '-' | '*' | '/' | '^' | '%' | '..'
-    | '<' | '<=' | '>' | '>=' | '==' | '~='
-    | 'and' | 'or'
-    ;
+operatorOr 
+	: 'or';
 
-unop
-    : '-' | 'not' | '#'
-    ;
+operatorAnd 
+	: 'and';
+
+operatorComparison 
+	: '<' | '>' | '<=' | '>=' | '~=' | '==';
+
+operatorStrcat
+	: '..';
+
+operatorAddSub
+	: '+' | '-';
+
+operatorMulDivMod
+	: '*' | '/' | '%';
+
+operatorUnary
+    : 'not' | '#' | '-';
+
+operatorPower
+    : '^';
 
 number
     : INT | HEX | FLOAT | HEX_FLOAT
@@ -242,6 +267,7 @@ HexExponentPart
 fragment
 EscapeSequence
     : '\\' [abfnrtvz"'\\]
+    | '\\' '\r'? '\n'
     | DecimalEscape
     | HexEscape
     ;
@@ -269,17 +295,23 @@ HexDigit
     ;
 
 COMMENT
-    : '--[[' .*? ']]'-> channel(HIDDEN)
+    : '--[' NESTED_STR ']' -> channel(HIDDEN)
     ;
     
 LINE_COMMENT
-    : '--' '['? (~('['|'\n'|'\r') ~('\n'|'\r')*)? ('\n'|'\r')* -> channel(HIDDEN)
+    : '--'
+    (                                               // --
+    | '[' '='*                                      // --[==
+    | '[' '='* ~('='|'['|'\r'|'\n') ~('\r'|'\n')*   // --[==AA
+    | ~('['|'\r'|'\n') ~('\r'|'\n')*                // --AAA
+    ) ('\r\n'|'\r'|'\n'|EOF)
+    -> channel(HIDDEN)
     ;
     
 WS  
-    : [ \t\u000C]+ -> skip
+    : [ \t\u000C\r\n]+ -> skip
     ;
-    
-NEWLINE
-    : '\r'? '\n' -> skip
+
+SHEBANG
+    : '#' '!' ~('\n'|'\r')* -> channel(HIDDEN)
     ;

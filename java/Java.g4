@@ -469,7 +469,7 @@ forInit
     ;
 
 enhancedForControl
-    :   variableModifier* type Identifier ':' expression
+    :   variableModifier* type variableDeclaratorId ':' expression
     ;
 
 forUpdate
@@ -520,19 +520,19 @@ expression
     |   expression '&&' expression
     |   expression '||' expression
     |   expression '?' expression ':' expression
-    |   expression
-        (   '='<assoc=right>
-        |   '+='<assoc=right>
-        |   '-='<assoc=right>
-        |   '*='<assoc=right>
-        |   '/='<assoc=right>
-        |   '&='<assoc=right>
-        |   '|='<assoc=right>
-        |   '^='<assoc=right>
-        |   '>>='<assoc=right>
-        |   '>>>='<assoc=right>
-        |   '<<='<assoc=right>
-        |   '%='<assoc=right>
+    |   <assoc=right> expression
+        (   '='
+        |   '+='
+        |   '-='
+        |   '*='
+        |   '/='
+        |   '&='
+        |   '|='
+        |   '^='
+        |   '>>='
+        |   '>>>='
+        |   '<<='
+        |   '%='
         )
         expression
     ;

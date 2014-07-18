@@ -29,14 +29,12 @@
  */
 
 /** A grammar for ANTLR v4 written in ANTLR v4.
-
-Build with
-
-$ antlr4 -no-listener *.g4
 */
 parser grammar ANTLRv4Parser;
 
-options { tokenVocab=ANTLRv4Lexer; }
+options {
+	tokenVocab=ANTLRv4Lexer;
+}
 
 // The main entry point for parsing a v4 grammar.
 grammarSpec
@@ -109,7 +107,7 @@ actionScopeName
 	;
 
 modeSpec
-	:	MODE id SEMI ruleSpec+
+	:	MODE id SEMI lexerRule*
 	;
 
 rules
@@ -209,7 +207,8 @@ lexerAltList
 	;
 
 lexerAlt
-	:	lexerElements? lexerCommands?
+	:	lexerElements lexerCommands?
+	|
 	;
 
 lexerElements
@@ -260,12 +259,7 @@ altList
 	;
 
 alternative
-	:	elements
-	|	// empty alt
-	;
-
-elements
-	:	element+
+	:	elementOptions? element*
 	;
 
 element
@@ -328,8 +322,8 @@ blockSet
 	;
 
 setElement
-	:	TOKEN_REF
-	|	STRING_LITERAL
+	:	TOKEN_REF elementOptions?
+	|	STRING_LITERAL elementOptions?
 	|	range
 	|	LEXER_CHAR_SET
 	;
@@ -342,7 +336,7 @@ block
 	;
 
 ruleref
-	:	RULE_REF ARG_ACTION?
+	:	RULE_REF ARG_ACTION? elementOptions?
 	;
 
 range

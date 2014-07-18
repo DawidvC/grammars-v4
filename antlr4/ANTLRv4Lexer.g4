@@ -1,7 +1,7 @@
 /*
  * [The "BSD license"]
- *  Copyright (c) 2012 Terence Parr
- *  Copyright (c) 2012 Sam Harwell
+ *  Copyright (c) 2014 Terence Parr
+ *  Copyright (c) 2014 Sam Harwell
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -38,13 +38,36 @@ tokens {
 }
 
 @members {
-	private int _ruleType;
+	/** Track whether we are inside of a rule and whether it is lexical parser.
+	 *  _currentRuleType==Token.INVALID_TYPE means that we are outside of a rule.
+	 *  At the first sign of a rule name reference and _currentRuleType==invalid,
+	 *  we can assume that we are starting a parser rule. Similarly, seeing
+	 *  a token reference when not already in rule means starting a token
+	 *  rule. The terminating ';' of a rule, flips this back to invalid type.
+	 *
+	 *  This is not perfect logic but works. For example, "grammar T;" means
+	 *  that we start and stop a lexical rule for the "T;". Dangerous but works.
+	 *
+	 *  The whole point of this state information is to distinguish
+	 *  between [..arg actions..] and [charsets]. Char sets can only occur in
+	 *  lexical rules and arg actions cannot occur.
+	 */
+	private int _currentRuleType = Token.INVALID_TYPE;
+
+	public int getCurrentRuleType() {
+		return _currentRuleType;
+	}
+
+	public void setCurrentRuleType(int ruleType) {
+		this._currentRuleType = ruleType;
+	}
 
 	protected void handleBeginArgAction() {
 		if (inLexerRule()) {
 			pushMode(LexerCharSet);
 			more();
-		} else {
+		}
+		else {
 			pushMode(ArgAction);
 			more();
 		}
@@ -60,43 +83,39 @@ tokens {
 				_type = RULE_REF;
 			}
 
-			if (_ruleType == Token.INVALID_TYPE) {
-				_ruleType = _type;
+			if (_currentRuleType == Token.INVALID_TYPE) { // if outside of rule def
+				_currentRuleType = _type;                 // set to inside lexer or parser rule
 			}
-		} else if (_type == SEMI) {
-			_ruleType = Token.INVALID_TYPE;
+		}
+		else if (_type == SEMI) {                  // exit rule def
+			_currentRuleType = Token.INVALID_TYPE;
 		}
 
 		return super.emit();
 	}
 
 	private boolean inLexerRule() {
-		return _ruleType == TOKEN_REF;
+		return _currentRuleType == TOKEN_REF;
+	}
+	private boolean inParserRule() { // not used, but added for clarity
+		return _currentRuleType == RULE_REF;
 	}
 }
 
 DOC_COMMENT
-	:	'/**' .*? '*/'
+	:	'/**' .*? ('*/' | EOF)
 	;
 
 BLOCK_COMMENT
-	:	'/*' .*? '*/'  //-> channel(HIDDEN)
+	:	'/*' .*? ('*/' | EOF)  -> channel(HIDDEN)
 	;
 
 LINE_COMMENT
-	:	'//' ~[\r\n]*  // -> channel(HIDDEN)
-	;
-
-DOUBLE_QUOTE_STRING_LITERAL
-	:	'"' ('\\' . | ~'"' )*? '"'
+	:	'//' ~[\r\n]*  -> channel(HIDDEN)
 	;
 
 BEGIN_ARG_ACTION
 	:	'[' {handleBeginArgAction();}
-	;
-
-BEGIN_ACTION
-	:	'{' -> more, pushMode(Action)
 	;
 
 // OPTIONS and TOKENS must also consume the opening brace that captures
@@ -182,7 +201,11 @@ INT	: [0-9]+
 // may contain unicode escape sequences of the form \uxxxx, where x
 // is a valid hexadecimal number (as per Java basically).
 STRING_LITERAL
-	:  '\'' (ESC_SEQ | ~['\\])* '\''
+	:  '\'' (ESC_SEQ | ~['\r\n\\])* '\''
+	;
+
+UNTERMINATED_STRING_LITERAL
+	:  '\'' (ESC_SEQ | ~['\r\n\\])*
 	;
 
 // Any kind of escaped character that we can embed within ANTLR
@@ -194,6 +217,10 @@ ESC_SEQ
 			[btnfr"'\\]
 		|	// A Java style Unicode escape sequence
 			UNICODE_ESC
+		|	// Invalid escape
+			.
+		|	// Invalid escape at end of file
+			EOF
 		)
 	;
 
@@ -205,7 +232,42 @@ UNICODE_ESC
 fragment
 HEX_DIGIT : [0-9a-fA-F]	;
 
-WS  :	[ \t\r\n\f]+ ; //-> channel(HIDDEN)	;
+WS  :	[ \t\r\n\f]+ -> channel(HIDDEN)	;
+
+// Many language targets use {} as block delimiters and so we
+// must recursively match {} delimited blocks to balance the
+// braces. Additionally, we must make some assumptions about
+// literal string representation in the target language. We assume
+// that they are delimited by ' or " and so consume these
+// in their own alts so as not to inadvertantly match {}.
+
+ACTION
+	:	'{'
+		(	ACTION
+		|	ACTION_ESCAPE
+        |	ACTION_STRING_LITERAL
+        |	ACTION_CHAR_LITERAL
+        |	'/*' .*? '*/' // ('*/' | EOF)
+        |	'//' ~[\r\n]*
+        |	.
+		)*?
+		('}'|EOF)
+	;
+
+fragment
+ACTION_ESCAPE
+		:   '\\' .
+		;
+
+fragment
+ACTION_STRING_LITERAL
+        :	'"' (ACTION_ESCAPE | ~["\\])* '"'
+        ;
+
+fragment
+ACTION_CHAR_LITERAL
+        :	'\'' (ACTION_ESCAPE | ~['\\])* '\''
+        ;
 
 // -----------------
 // Illegal Character
@@ -218,11 +280,9 @@ WS  :	[ \t\r\n\f]+ ; //-> channel(HIDDEN)	;
 // but we will not try to analyse or code generate from a file with lexical
 // errors.
 //
-/*
 ERRCHAR
 	:	.	-> channel(HIDDEN)
 	;
-*/
 
 mode ArgAction; // E.g., [int x, List<String> a[]]
 
@@ -254,56 +314,7 @@ mode ArgAction; // E.g., [int x, List<String> a[]]
         :   .                           -> more
         ;
 
-// ----------------
-// Action structure
-//
-// Many language targets use {} as block delimiters and so we
-// must recursively match {} delimited blocks to balance the
-// braces. Additionally, we must make some assumptions about
-// literal string representation in the target language. We assume
-// that they are delimited by ' or " and so consume these
-// in their own alts so as not to inadvertantly match {}.
-// This mode is recursive on matching a {
-mode Action;
 
-	NESTED_ACTION
-		:	'{'
-            -> more, pushMode(Action)
-		;
-
-	ACTION_ESCAPE
-		:   '\\' .                      -> more
-		;
-
-    ACTION_STRING_LITERAL
-        :	'"' ('\\' . | ~["\\])* '"'  -> more
-        ;
-
-    ACTION_CHAR_LITERAL
-        :	('"' '\\' . | ~["\\] '"')   -> more
-        ;
-
-	ACTION_COMMENT
-		:   (BLOCK_COMMENT
-            |LINE_COMMENT
-            )                           -> more
-        ;
-
-    ACTION
-		:   '}'
-            {
-            popMode();
-        	if ( _modeStack.size()>0 ) more(); // keep scarfing until outermost }
-            }
-		;
-
-	UNTERMINATED_ACTION
-		:	EOF							-> popMode
-		;
-
-    ACTION_CHAR
-        :   .                           -> more
-        ;
 
 mode LexerCharSet;
 
